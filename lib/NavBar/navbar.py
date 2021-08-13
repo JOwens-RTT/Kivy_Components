@@ -36,14 +36,14 @@ class NavBar(Layout):
     tabs = ListProperty([])
     tabSpacing = NumericProperty(0.1)
     tabSizeHint = ListProperty([None, None])
-    tabShape = StringProperty("RoundedRectangle")
-    tabRadius = NumericProperty(20)
+    tabShape = StringProperty("Rectangle")
+    tabRadius = NumericProperty(5)
     tabBorderThickness = NumericProperty(5)
-    tabBorderEnable = BooleanProperty(True)
+    tabBorderEnable = BooleanProperty(False)
 
     # Positioning and size
     orientToTop = BooleanProperty(True)
-    extendPastBounds = BooleanProperty(True)
+    extendPastBounds = BooleanProperty(False)
 
     # Color Scheme
     backgroundColor = ListProperty([1,1,1,1])
@@ -51,8 +51,6 @@ class NavBar(Layout):
     tabColor = ListProperty([0,1,0,1])
     tabBorderColor = ListProperty([0,0,1,1])
     highlightColor = ListProperty([0.1,1,0.1,1])
-
-    # Text and Font
 
     ################################################ INIT & ORGANIZATION METHODS ################################################
 
@@ -76,12 +74,14 @@ class NavBar(Layout):
         self.tabSize = [10,10]
         self.activeTab = 0
         self.labels = {}
+        self._tabsFound = False
+        self._tabSpacingHint = 0.0
 
         # Create bindings
         fbind = self.fbind
         update = self._trigger_layout
         findTabs = self._findTabs
-        fbind('tabs', update)
+        fbind('_tabsFound', update)
         #fbind('tabSpacing', update)
         fbind('orientToTop', update)
         fbind('extendPastBounds', update)
@@ -118,12 +118,11 @@ class NavBar(Layout):
         self.size = self.barSize[0] + self.contentSize[0], self.barSize[1] + self.contentSize[1]
 
     def _findTabs(self, *largs, **kwargs):
-        self.tabs.clear()
         self.activeTab = 0
         
         # Search children for NavBarTabs
         for child in self.children:
-            if isinstance(child, NavBarTabBase):
+            if isinstance(child, NavBarTabBase) and not child in self.tabs:
                 # NavBarTab found. Add to tabs.
                 self.tabs.append(child)
                 if not(child in self.labels):
@@ -139,6 +138,7 @@ class NavBar(Layout):
                     )
                     App.get_running_app().root.add_widget(self.labels[child])
         self.tabs.reverse()
+        self._tabsFound = not self._tabsFound
 
         
     ################################################ UPDATE METHODS ################################################
@@ -176,7 +176,7 @@ class NavBar(Layout):
                 print("  Tab hight autoset to: {}".format(tabHeight))
             
             self.tabSizeHint = self._limit(tabWidth, 0.0, 1.0), self._limit(tabHeight, 0.0, 1.0)
-            self.tabSpacing = (1.0 - 4 * tabWidth) / (5)
+            self._tabSpacingHint = (1.0 - 4 * tabWidth) / (5)
             print("  Final size and spacing: size=({}, {}), spacing={}".format(tabWidth, tabHeight, self.tabSpacing))
         else:
             print("Containing tabs to bounds!")
@@ -197,7 +197,7 @@ class NavBar(Layout):
                 tabHeight = self._limit(self.tabSizeHint[1], 0.0, 1.0)
                 print("  Using user defined tab height: {}".format(tabHeight))
             self.tabSizeHint = tabWidth, tabHeight
-            self.tabSpacing = (1.0 - numOfChildren * tabWidth) / (numOfChildren + 1)
+            self._tabSpacingHint = (1.0 - numOfChildren * tabWidth) / (numOfChildren + 1)
             print("  Final size and spacing: size=({}, {}), spacing={}".format(tabWidth, tabHeight, self.tabSpacing))
 
     ################################################ DRAW METHODS ################################################
@@ -285,7 +285,7 @@ class NavBar(Layout):
 
         # Calculate tab width, spacing, and Y location
         numOfTabs = len(self.tabs)
-        spacing = self.tabSpacing * width
+        spacing = self._tabSpacingHint * width
         elementWidth = tabWidth + spacing
         verticalSpacing = (height - tabHeight) / 2.0
         tabY = y + verticalSpacing
@@ -308,7 +308,6 @@ class NavBar(Layout):
             displacement = index - self.activeTab
             tabX = activeX + displacement * elementWidth
 
-        
         if self.tabShape == "Rectangle":
             if self.tabBorderEnable:
                 thickness = self.tabBorderThickness
@@ -344,22 +343,27 @@ class NavBar(Layout):
         elif max is not None and value > max: value = max
         return value
 
-    ################################################ TEXT METHODS ################################################
-
-    
-
 class MainApp(App):
     def build(self):
         Window.size = 600,600
         self.root = root = NavBar(
             size_hint=(1.0,0.1),
-            
+            tabShape="RoundedRectangle",
+            tabRadius=10,
+            tabBorderThickness=2.5,
+            tabBorderEnable=False,
+            extendPastBounds=True,
+            highlightColor=(0.2,1.0,0.3,1.0),
+            tabColor=(0.5,0.5,0.5,1.0),
+            tabBackgroundColor=(0.2,0.2,0.2,1.0),
+            backgroundColor=(0.2,0.2,0.2,1.0),
+            tabSizeHint=(None, 0.8)
         )
-        root.add_widget(NavBarTabBase(text="Tab 1", fontSize=24, halign='center', valign='center', bold=True))
-        root.add_widget(NavBarTabBase(text="Tab 2", fontSize=24, halign='center', valign='center'))
-        root.add_widget(NavBarTabBase(text="Tab 3", fontSize=24, halign='center', valign='center'))
-        root.add_widget(NavBarTabBase(text="Tab 4", fontSize=24, halign='center', valign='center'))
-        root.add_widget(NavBarTabBase(text="Tab 5", fontSize=24, halign='center', valign='center'))
+        root.add_widget(NavBarTabBase(text="Tab 1", fontSize=20, halign='center', valign='center', bold=True))
+        root.add_widget(NavBarTabBase(text="Tab 2", fontSize=20, halign='center', valign='center', bold=True))
+        root.add_widget(NavBarTabBase(text="Tab 3", fontSize=20, halign='center', valign='center', bold=True))
+        root.add_widget(NavBarTabBase(text="Tab 4", fontSize=20, halign='center', valign='center', bold=True))
+        root.add_widget(NavBarTabBase(text="Tab 5", fontSize=20, halign='center', valign='center', bold=True))
         return root
 
 if __name__ == '__main__':
