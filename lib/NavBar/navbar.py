@@ -5,11 +5,13 @@ from kivy.graphics.instructions import *
 from kivy.uix.screenmanager import ScreenManager, Screen
 from kivy.uix.layout import Layout
 from kivy.core.window import Window
+from kivy.uix.label import Label
 from kivy.properties import (
     ListProperty,
     BooleanProperty,
     NumericProperty,
-    StringProperty
+    StringProperty,
+    ObjectProperty
 )
 
 class NavBarTabBase(Screen):
@@ -20,6 +22,10 @@ class NavBar(Layout):
     tabs = ListProperty([])
     tabSpacing = NumericProperty(0.1)
     tabSizeHint = ListProperty([None, None])
+    tabShape = StringProperty("RoundedRectangle")
+    tabRadius = NumericProperty(20)
+    tabBorderThickness = NumericProperty(5)
+    tabBorderEnable = BooleanProperty(True)
 
     # Positioning and size
     orientToTop = BooleanProperty(True)
@@ -59,7 +65,7 @@ class NavBar(Layout):
         update = self._trigger_layout
         findTabs = self._findTabs
         fbind('tabs', update)
-        fbind('tabSpacing', update)
+        #fbind('tabSpacing', update)
         fbind('orientToTop', update)
         fbind('extendPastBounds', update)
         fbind('backgroundColor', update)
@@ -87,12 +93,11 @@ class NavBar(Layout):
     ################################################ UPDATE METHODS ################################################
 
     def do_layout(self, *largs, **kwargs):
-        width, height = kwargs.get("size", self.size)
-        x, y = kwargs.get("pos", self.pos)
         self._calcTabSize()
+        self.drawBackground()
         for tab in self.tabs:
             self.drawTab(self.tabs.index(tab))
-        self.drawBackground()
+        
 
     def _calcTabSize(self):
         # Make sure tab spacing is in range [0,1] or 0.1 if not specified
@@ -101,44 +106,113 @@ class NavBar(Layout):
         else:
             self.tabSpacing = self._limit(self.tabSpacing, 0.0, 1.0)
 
+        print("Tab spacing: {}".format(self.tabSpacing))
+
         tabWidth, tabHeight = self.tabSizeHint
+        print("User supplied tab size: ({}, {})".format(tabWidth, tabHeight))
 
         # Calculate tab sizes based on layout style
         if self.extendPastBounds:
+            print("Extending past bounds!")
             # Tabs should be allowed to exit the bounds of the control
-            
             if tabWidth is None:
                 # Allow space for 4 tabs at a time by default
                 tabWidth = 1.0 / (4 * (1 + self.tabSpacing) + self.tabSpacing)
+                print("  Tab width autoset to: {}".format(tabWidth))
                 
             if tabHeight is None:
                 # Fill entire vertical space
                 tabHeight = 1.0
+                print("  Tab hight autoset to: {}".format(tabHeight))
             
             self.tabSizeHint = self._limit(tabWidth, 0.0, 1.0), self._limit(tabHeight, 0.0, 1.0)
             self.tabSpacing = (1.0 - 4 * tabWidth) / (5)
+            print("  Final size and spacing: size=({}, {}), spacing={}".format(tabWidth, tabHeight, self.tabSpacing))
         else:
+            print("Containing tabs to bounds!")
             # Tabs should be contained within the bounds of the control. DO NOT use the user defined tab size recommendations.
             numOfChildren = len(self.tabs)
+            print("  Number of tabs: {}".format(numOfChildren))
+            print(" Spacing: {}".format(self.tabSpacing))
 
             # Calculate tab width hint
-            tabWidth = 1.0 / (numOfChildren * (1 + self.tabSpacing) + self.tabSpacing)
+            tabWidth = 1.0 / (numOfChildren * (1.0 + self.tabSpacing) + self.tabSpacing)
+            print("  Autosetting tab width: {:.3f}".format(tabWidth))
             if tabHeight is None:
                 # Fill entire vertical space
                 tabHeight = 1.0
+                print("  Autosetting tab height: {}".format(tabHeight))
             else:
                 # Fill vertical space to specified limit
                 tabHeight = self._limit(self.tabSizeHint[1], 0.0, 1.0)
+                print("  Using user defined tab height: {}".format(tabHeight))
             self.tabSizeHint = tabWidth, tabHeight
             self.tabSpacing = (1.0 - numOfChildren * tabWidth) / (numOfChildren + 1)
+            print("  Final size and spacing: size=({}, {}), spacing={}".format(tabWidth, tabHeight, self.tabSpacing))
 
     ################################################ DRAW METHODS ################################################
 
     def drawRect(self, pos, size, color):
-        canvas = self.canvas
+        print("Drawing Rectangle\n  pos: {}, size: {}, color: {}".format(pos, size, color))
+        canvas = self.canvas.before
         rect = InstructionGroup()
         rect.add(Color(rgba=color))
         rect.add(Rectangle(pos=pos, size=size))
+        canvas.add(rect)
+
+    def drawRoundedRect(self, pos, size, color, radius):
+        print("Drawing Rectangle\n  pos: {}, size: {}, color: {}".format(pos, size, color))
+        # Split components
+        x,y = pos
+        width, height = size
+
+        # Calculate key verticies
+        vA = x, y
+        vB = x + width - 2*radius, y
+        vC = x + width - 2*radius, y + height - 2*radius
+        vD = x, y + height - 2*radius
+        v1 = x + radius, y
+        v2 = x + width - radius, y + radius
+        v3 = x + radius, y + height - radius
+        v4 = x, y + radius
+        v5 = x + radius, y + radius
+
+        # Calculate dimensions
+        innerWidth = width - 2 * radius
+        innerHeight = height - 2 * radius
+        circleSize = radius * 2, radius * 2
+
+        # Create Instruction Group
+        rect = InstructionGroup()
+        rect.add(Color(rgba=color))                                     # Color setting
+        rect.add(Ellipse(pos=vA, size=circleSize))                      # Lower Left Circle
+        rect.add(Ellipse(pos=vB, size=circleSize))                      # Lower Right Circle
+        rect.add(Ellipse(pos=vC, size=circleSize))                      # Upper Right Circle
+        rect.add(Ellipse(pos=vD, size=circleSize))                      # Upper Left Circle
+        rect.add(Rectangle(pos=v1, size=(innerWidth, radius)))          # Bottom Edge
+        rect.add(Rectangle(pos=v2, size=(radius, innerHeight)))         # Right Edge
+        rect.add(Rectangle(pos=v3, size=(innerWidth, radius)))          # Top Edge
+        rect.add(Rectangle(pos=v4, size=(radius, innerHeight)))         # Left Edge
+        rect.add(Rectangle(pos=v5, size=(innerWidth, innerHeight)))     # Middle Fill
+       
+        # Draw to canvas
+        canvas = self.canvas.before
+        canvas.add(rect)
+
+    def drawRectBorder(self, pos, size, thickness, color):
+        print("Drawing Rectangle Border\n  pos: {}, size: {}, color: {}".format(pos, size, color))
+        canvas = self.canvas.before
+        rect = InstructionGroup()
+        rect.add(Color(rgba=color))
+        rect.add(Line(rectangle=(pos[0] + thickness,pos[1] + thickness,size[0] - thickness * 2, size[1] - thickness * 2), width=thickness))
+        canvas.add(rect)
+
+    def drawRoundRectBorder(self, pos, size, thickness, color, radius):
+        print("Drawing Rectangle Border\n  pos: {}, size: {}, color: {}".format(pos, size, color))
+        canvas = self.canvas.before
+        rect = InstructionGroup()
+        rect.add(Color(rgba=color))
+        rect.add(Line(rounded_rectangle=(pos[0] + thickness,pos[1] + thickness,size[0] - thickness * 2, size[1] - thickness * 2, radius), width=thickness))
         canvas.add(rect)
 
     def drawBackground(self):
@@ -150,6 +224,7 @@ class NavBar(Layout):
         # NavBar size and location
         x, y = self.barPos
         width, height = self.barSize
+        print("Draw Tab\n  Tab#: {}, x: {}, y: {}, width: {}, height: {}".format(index, x, y, width, height))
 
         # Tab size and location
         tabWidth = width * self.tabSizeHint[0]
@@ -183,7 +258,24 @@ class NavBar(Layout):
             displacement = index - self.activeTab
             tabX = activeX + displacement * elementWidth
 
-        self.drawRect((tabX,tabY), (tabWidth,tabHeight), color)
+        
+        if self.tabShape == "Rectangle":
+            if self.tabBorderEnable:
+                thickness = self.tabBorderThickness
+                self.drawRect((tabX + thickness, tabY + thickness), (tabWidth - 2 * thickness,tabHeight - 2 * thickness), color)
+                self.drawRectBorder((tabX,tabY), (tabWidth,tabHeight), thickness, self.tabBorderColor)
+            else:
+                self.drawRect((tabX,tabY), (tabWidth,tabHeight), color)
+        elif self.tabShape == "RoundedRectangle":
+            
+            if self.tabBorderEnable:
+                thickness = self.tabBorderThickness
+                self.drawRoundedRect((tabX + thickness, tabY + thickness), (tabWidth - 2 * thickness,tabHeight - 2 * thickness), color, self.tabRadius)
+                self.drawRoundRectBorder((tabX,tabY), (tabWidth,tabHeight), self.tabBorderThickness, self.tabBorderColor, self.tabRadius)
+            else:
+                self.drawRoundedRect((tabX,tabY), (tabWidth,tabHeight), color, self.tabRadius)
+        else:
+            raise Exception("Requested Tab background shape not implemented!!! tabShape = {} is not a valid keyword.".format(self.tabShape))
 
 
 
@@ -198,7 +290,7 @@ class NavBar(Layout):
 
 class MainApp(App):
     def build(self):
-        Window.size = 600,600
+        Window.size = 1920,1080
         self.root = root = NavBar(
             #size=(600,600), 
             size_hint=(1.0,0.1)
