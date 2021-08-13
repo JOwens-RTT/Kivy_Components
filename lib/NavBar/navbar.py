@@ -22,7 +22,14 @@ from kivy.properties import (
 )
 
 class NavBarTabBase(Screen):
-    pass
+    text = StringProperty("Tab")
+    fontSize = NumericProperty(5)
+    textColor = ColorProperty([1,1,1,1])
+    bold = BooleanProperty(False)
+    underline = BooleanProperty(False)
+    halign = OptionProperty('auto', options=['left', 'center', 'right', 'justify', 'auto'])
+    valign = OptionProperty('bottom', options=['bottom', 'middle', 'center', 'top'])
+    textSize = ListProperty([None,None])
 
 class NavBar(Layout):
     # Tabs
@@ -46,68 +53,10 @@ class NavBar(Layout):
     highlightColor = ListProperty([0.1,1,0.1,1])
 
     # Text and Font
-    _font_properties = ('font_size', 'font_name', 'bold', 'italic',
-                        'underline', 'strikethrough', 'font_family', 'color',
-                        'disabled_color', 'halign', 'valign', 'padding_x',
-                        'padding_y', 'outline_width', 'disabled_outline_color',
-                        'outline_color', 'text_size', 'shorten', 'mipmap',
-                        'line_height', 'max_lines', 'strip', 'shorten_from',
-                        'split_str', 'ellipsis_options', 'unicode_errors',
-                        'markup', 'font_hinting', 'font_kerning',
-                        'font_blended', 'font_context', 'font_features',
-                        'base_direction', 'text_language')
-
-    text_size = ListProperty([None, None])
-    base_direction = OptionProperty(None,
-                     options=['ltr', 'rtl', 'weak_rtl', 'weak_ltr', None],
-                     allownone=True)
-    text_language = StringProperty(None, allownone=True)
-    font_context = StringProperty(None, allownone=True)
-    font_family = StringProperty(None, allownone=True)
-    font_name = StringProperty(DEFAULT_FONT)
-    font_size = NumericProperty('15sp')
-    font_features = StringProperty()
-    line_height = NumericProperty(1.0)
-    bold = BooleanProperty(False)
-    italic = BooleanProperty(False)
-    underline = BooleanProperty(False)
-    strikethrough = BooleanProperty(False)
-    padding_x = NumericProperty(0)
-    padding_y = NumericProperty(0)
-    padding = ReferenceListProperty(padding_x, padding_y)
-    halign = OptionProperty('auto', options=['left', 'center', 'right',
-                            'justify', 'auto'])
-    valign = OptionProperty('bottom',
-                            options=['bottom', 'middle', 'center', 'top'])
-    color = ColorProperty([1, 1, 1, 1])
-    outline_width = NumericProperty(None, allownone=True)
-    outline_color = ColorProperty([0, 0, 0, 1])
-    disabled_outline_color = ColorProperty([0, 0, 0, 1])
-    texture = ObjectProperty(None, allownone=True)
-    texture_size = ListProperty([0, 0])
-    mipmap = BooleanProperty(False)
-    shorten = BooleanProperty(False)
-    shorten_from = OptionProperty('center', options=['left', 'center',
-                                'right'])
-    is_shortened = BooleanProperty(False)
-    split_str = StringProperty('')
-    ellipsis_options = DictProperty({})
-    unicode_errors = OptionProperty(
-        'replace', options=('strict', 'replace', 'ignore'))
-    markup = BooleanProperty(False)
-    refs = DictProperty({})
-    anchors = DictProperty({})
-    max_lines = NumericProperty(0)
-    strip = BooleanProperty(False)
-    font_hinting = OptionProperty(
-        'normal', options=[None, 'normal', 'light', 'mono'], allownone=True)
-    font_kerning = BooleanProperty(True)
-    font_blended = BooleanProperty(True)
 
     ################################################ INIT & ORGANIZATION METHODS ################################################
 
     def __init__(self, **kwargs):
-        self._trigger_texture = Clock.create_trigger(self.texture_update, -1)
         super(NavBar, self).__init__(**kwargs)
         # Extract kwargs
         parent = self.parent
@@ -126,6 +75,7 @@ class NavBar(Layout):
         self.contentSize = width * self.size_hint_x, height - self.barSize[1]
         self.tabSize = [10,10]
         self.activeTab = 0
+        self.labels = {}
 
         # Create bindings
         fbind = self.fbind
@@ -144,16 +94,28 @@ class NavBar(Layout):
         fbind('size', update)
         fbind('pos', update)
         fbind('size_hint', update)
+        #parent.fbind('size', self._update_size)
 
-        # bind all the property for recreating the texture
-        d = Label._font_properties
-        fbind = self.fbind
-        update = self._trigger_texture_update
-        fbind('disabled', update, 'disabled')
-        for x in d:
-            fbind(x, update, x)
+    def _update_size(self, *largs, **kwargs):
+        # Extract kwargs
+        parent = self.parent
+        px,py = 0.0,0.0
+        if parent is None:
+            parent = Window
+        # else:
+        #     px,py = parent.pos
 
-        self._labels = []
+        width, height = parent.size
+
+        # Declare paramters
+        self.barPos = px,py
+        self.barSize = width * self.size_hint_x, height * self.size_hint_y
+        self.contentPos = px, self.barSize[1]
+        self.contentSize = width * self.size_hint_x, height - self.barSize[1]
+        self.tabSize = [10,10]
+        self.activeTab = 0
+        self.labels = {}
+        self.size = self.barSize[0] + self.contentSize[0], self.barSize[1] + self.contentSize[1]
 
     def _findTabs(self, *largs, **kwargs):
         self.tabs.clear()
@@ -164,7 +126,18 @@ class NavBar(Layout):
             if isinstance(child, NavBarTabBase):
                 # NavBarTab found. Add to tabs.
                 self.tabs.append(child)
-                self._labels.append(self._create_label(child.text))
+                if not(child in self.labels):
+                    self.labels[child] = Label(
+                        text=child.text,
+                        font_size=child.fontSize,
+                        color=child.textColor,
+                        valign=child.valign,
+                        halign=child.halign,
+                        underline=child.underline,
+                        bold=child.bold,
+                        text_size=child.textSize
+                    )
+                    App.get_running_app().root.add_widget(self.labels[child])
         self.tabs.reverse()
 
         
@@ -354,6 +327,15 @@ class NavBar(Layout):
         else:
             raise Exception("Requested Tab background shape not implemented!!! tabShape = {} is not a valid keyword.".format(self.tabShape))
 
+        # Display Text
+        tab = self.tabs[index]
+        tabLabel = self.labels[tab]
+        tabLabel.text = tab.text
+        tabLabel.pos = tabX,tabY
+        tabLabel.size = tabWidth,tabHeight
+
+        print("Adding Label\n  Text: {}, pos: {}, size: {}, font_size: {}, color: {}".format(tabLabel.text, tabLabel.pos, tabLabel.size, tabLabel.font_size, tabLabel.color))
+
     ################################################ DATA MANIPULATION METHODS ################################################
 
     def _limit(self, value, min, max):
@@ -364,61 +346,20 @@ class NavBar(Layout):
 
     ################################################ TEXT METHODS ################################################
 
-    def _create_label(self, text):
-        # create the core label class according to markup value
-        if self._label is not None:
-            cls = self._label.__class__
-        else:
-            cls = None
-        markup = self.markup
-        if (markup and cls is not CoreMarkupLabel) or \
-           (not markup and cls is not CoreLabel):
-            # markup have change, we need to change our rendering method.
-            d = Label._font_properties
-            dkw = dict(list(zip(d, [getattr(self, x) for x in d])))
-            if markup:
-                self._label = CoreMarkupLabel(**dkw)
-            else:
-                self._label = CoreLabel(**dkw)
-
-    def _trigger_texture_update(self, name=None, source=None, value=None):
-        # check if the label core class need to be switch to a new one
-        if name == 'markup':
-            self._create_label()
-        if source:
-            if name == 'text':
-                self._label.text = value
-            elif name == 'text_size':
-                self._label.usersize = value
-            elif name == 'font_size':
-                self._label.options[name] = value
-            elif name == 'disabled_color' and self.disabled:
-                self._label.options['color'] = value
-            elif name == 'disabled_outline_color' and self.disabled:
-                self._label.options['outline_color'] = value
-            elif name == 'disabled':
-                self._label.options['color'] = self.disabled_color if value \
-                    else self.color
-                self._label.options['outline_color'] = (
-                    self.disabled_outline_color if value else
-                    self.outline_color)
-            else:
-                self._label.options[name] = value
-        self._trigger_texture()
-
+    
 
 class MainApp(App):
     def build(self):
         Window.size = 600,600
         self.root = root = NavBar(
-            #size=(600,600), 
-            size_hint=(1.0,0.1)
+            size_hint=(1.0,0.1),
+            
         )
-        root.add_widget(NavBarTabBase())
-        root.add_widget(NavBarTabBase())
-        root.add_widget(NavBarTabBase())
-        root.add_widget(NavBarTabBase())
-        root.add_widget(NavBarTabBase())
+        root.add_widget(NavBarTabBase(text="Tab 1", fontSize=24, halign='center', valign='center', bold=True))
+        root.add_widget(NavBarTabBase(text="Tab 2", fontSize=24, halign='center', valign='center'))
+        root.add_widget(NavBarTabBase(text="Tab 3", fontSize=24, halign='center', valign='center'))
+        root.add_widget(NavBarTabBase(text="Tab 4", fontSize=24, halign='center', valign='center'))
+        root.add_widget(NavBarTabBase(text="Tab 5", fontSize=24, halign='center', valign='center'))
         return root
 
 if __name__ == '__main__':
