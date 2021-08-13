@@ -5,13 +5,20 @@ from kivy.graphics.instructions import *
 from kivy.uix.screenmanager import ScreenManager, Screen
 from kivy.uix.layout import Layout
 from kivy.core.window import Window
+from kivy.core.text.markup import MarkupLabel as CoreMarkupLabel
+from kivy.core.text import Label as CoreLabel, DEFAULT_FONT
 from kivy.uix.label import Label
+from kivy.clock import Clock
 from kivy.properties import (
     ListProperty,
     BooleanProperty,
     NumericProperty,
     StringProperty,
-    ObjectProperty
+    ObjectProperty,
+    ReferenceListProperty,
+    OptionProperty,
+    ColorProperty,
+    DictProperty
 )
 
 class NavBarTabBase(Screen):
@@ -29,7 +36,7 @@ class NavBar(Layout):
 
     # Positioning and size
     orientToTop = BooleanProperty(True)
-    extendPastBounds = BooleanProperty(False)
+    extendPastBounds = BooleanProperty(True)
 
     # Color Scheme
     backgroundColor = ListProperty([1,1,1,1])
@@ -38,9 +45,69 @@ class NavBar(Layout):
     tabBorderColor = ListProperty([0,0,1,1])
     highlightColor = ListProperty([0.1,1,0.1,1])
 
+    # Text and Font
+    _font_properties = ('font_size', 'font_name', 'bold', 'italic',
+                        'underline', 'strikethrough', 'font_family', 'color',
+                        'disabled_color', 'halign', 'valign', 'padding_x',
+                        'padding_y', 'outline_width', 'disabled_outline_color',
+                        'outline_color', 'text_size', 'shorten', 'mipmap',
+                        'line_height', 'max_lines', 'strip', 'shorten_from',
+                        'split_str', 'ellipsis_options', 'unicode_errors',
+                        'markup', 'font_hinting', 'font_kerning',
+                        'font_blended', 'font_context', 'font_features',
+                        'base_direction', 'text_language')
+
+    text_size = ListProperty([None, None])
+    base_direction = OptionProperty(None,
+                     options=['ltr', 'rtl', 'weak_rtl', 'weak_ltr', None],
+                     allownone=True)
+    text_language = StringProperty(None, allownone=True)
+    font_context = StringProperty(None, allownone=True)
+    font_family = StringProperty(None, allownone=True)
+    font_name = StringProperty(DEFAULT_FONT)
+    font_size = NumericProperty('15sp')
+    font_features = StringProperty()
+    line_height = NumericProperty(1.0)
+    bold = BooleanProperty(False)
+    italic = BooleanProperty(False)
+    underline = BooleanProperty(False)
+    strikethrough = BooleanProperty(False)
+    padding_x = NumericProperty(0)
+    padding_y = NumericProperty(0)
+    padding = ReferenceListProperty(padding_x, padding_y)
+    halign = OptionProperty('auto', options=['left', 'center', 'right',
+                            'justify', 'auto'])
+    valign = OptionProperty('bottom',
+                            options=['bottom', 'middle', 'center', 'top'])
+    color = ColorProperty([1, 1, 1, 1])
+    outline_width = NumericProperty(None, allownone=True)
+    outline_color = ColorProperty([0, 0, 0, 1])
+    disabled_outline_color = ColorProperty([0, 0, 0, 1])
+    texture = ObjectProperty(None, allownone=True)
+    texture_size = ListProperty([0, 0])
+    mipmap = BooleanProperty(False)
+    shorten = BooleanProperty(False)
+    shorten_from = OptionProperty('center', options=['left', 'center',
+                                'right'])
+    is_shortened = BooleanProperty(False)
+    split_str = StringProperty('')
+    ellipsis_options = DictProperty({})
+    unicode_errors = OptionProperty(
+        'replace', options=('strict', 'replace', 'ignore'))
+    markup = BooleanProperty(False)
+    refs = DictProperty({})
+    anchors = DictProperty({})
+    max_lines = NumericProperty(0)
+    strip = BooleanProperty(False)
+    font_hinting = OptionProperty(
+        'normal', options=[None, 'normal', 'light', 'mono'], allownone=True)
+    font_kerning = BooleanProperty(True)
+    font_blended = BooleanProperty(True)
+
     ################################################ INIT & ORGANIZATION METHODS ################################################
 
     def __init__(self, **kwargs):
+        self._trigger_texture = Clock.create_trigger(self.texture_update, -1)
         super(NavBar, self).__init__(**kwargs)
         # Extract kwargs
         parent = self.parent
@@ -78,6 +145,16 @@ class NavBar(Layout):
         fbind('pos', update)
         fbind('size_hint', update)
 
+        # bind all the property for recreating the texture
+        d = Label._font_properties
+        fbind = self.fbind
+        update = self._trigger_texture_update
+        fbind('disabled', update, 'disabled')
+        for x in d:
+            fbind(x, update, x)
+
+        self._labels = []
+
     def _findTabs(self, *largs, **kwargs):
         self.tabs.clear()
         self.activeTab = 0
@@ -87,6 +164,7 @@ class NavBar(Layout):
             if isinstance(child, NavBarTabBase):
                 # NavBarTab found. Add to tabs.
                 self.tabs.append(child)
+                self._labels.append(self._create_label(child.text))
         self.tabs.reverse()
 
         
@@ -97,7 +175,6 @@ class NavBar(Layout):
         self.drawBackground()
         for tab in self.tabs:
             self.drawTab(self.tabs.index(tab))
-        
 
     def _calcTabSize(self):
         # Make sure tab spacing is in range [0,1] or 0.1 if not specified
@@ -220,7 +297,7 @@ class NavBar(Layout):
         self.drawRect(self.contentPos, self.contentSize, self.backgroundColor)
         self.drawRect(self.barPos, self.barSize, self.tabBackgroundColor)
 
-    def drawTab(self, index):
+    def drawTab(self, index, text=""):
         # NavBar size and location
         x, y = self.barPos
         width, height = self.barSize
@@ -277,8 +354,6 @@ class NavBar(Layout):
         else:
             raise Exception("Requested Tab background shape not implemented!!! tabShape = {} is not a valid keyword.".format(self.tabShape))
 
-
-
     ################################################ DATA MANIPULATION METHODS ################################################
 
     def _limit(self, value, min, max):
@@ -287,10 +362,54 @@ class NavBar(Layout):
         elif max is not None and value > max: value = max
         return value
 
+    ################################################ TEXT METHODS ################################################
+
+    def _create_label(self, text):
+        # create the core label class according to markup value
+        if self._label is not None:
+            cls = self._label.__class__
+        else:
+            cls = None
+        markup = self.markup
+        if (markup and cls is not CoreMarkupLabel) or \
+           (not markup and cls is not CoreLabel):
+            # markup have change, we need to change our rendering method.
+            d = Label._font_properties
+            dkw = dict(list(zip(d, [getattr(self, x) for x in d])))
+            if markup:
+                self._label = CoreMarkupLabel(**dkw)
+            else:
+                self._label = CoreLabel(**dkw)
+
+    def _trigger_texture_update(self, name=None, source=None, value=None):
+        # check if the label core class need to be switch to a new one
+        if name == 'markup':
+            self._create_label()
+        if source:
+            if name == 'text':
+                self._label.text = value
+            elif name == 'text_size':
+                self._label.usersize = value
+            elif name == 'font_size':
+                self._label.options[name] = value
+            elif name == 'disabled_color' and self.disabled:
+                self._label.options['color'] = value
+            elif name == 'disabled_outline_color' and self.disabled:
+                self._label.options['outline_color'] = value
+            elif name == 'disabled':
+                self._label.options['color'] = self.disabled_color if value \
+                    else self.color
+                self._label.options['outline_color'] = (
+                    self.disabled_outline_color if value else
+                    self.outline_color)
+            else:
+                self._label.options[name] = value
+        self._trigger_texture()
+
 
 class MainApp(App):
     def build(self):
-        Window.size = 1920,1080
+        Window.size = 600,600
         self.root = root = NavBar(
             #size=(600,600), 
             size_hint=(1.0,0.1)
