@@ -1,14 +1,19 @@
 from ctypes import sizeof
+
+from typing import List
 from kivy.app import App
 from kivy.graphics import *
 from kivy.graphics.instructions import *
+from kivy.uix.relativelayout import RelativeLayout
 from kivy.uix.screenmanager import ScreenManager, Screen
 from kivy.uix.layout import Layout
 from kivy.core.window import Window
 from kivy.core.text.markup import MarkupLabel as CoreMarkupLabel
 from kivy.core.text import Label as CoreLabel, DEFAULT_FONT
 from kivy.uix.label import Label
+from kivy.uix.floatlayout import FloatLayout
 from kivy.clock import Clock
+from kivy.uix.widget import Widget
 from kivy.properties import (
     ListProperty,
     BooleanProperty,
@@ -21,7 +26,7 @@ from kivy.properties import (
     DictProperty
 )
 
-class NavBarTabBase(Screen):
+class NavBarTabBase(RelativeLayout):
     text = StringProperty("Tab")
     fontSize = NumericProperty(5)
     textColor = ColorProperty([1,1,1,1])
@@ -30,6 +35,18 @@ class NavBarTabBase(Screen):
     halign = OptionProperty('auto', options=['left', 'center', 'right', 'justify', 'auto'])
     valign = OptionProperty('bottom', options=['bottom', 'middle', 'center', 'top'])
     textSize = ListProperty([None,None])
+
+    def __init__(self, **kwargs):
+        super(NavBarTabBase, self).__init__(**kwargs)
+        self.fbind('text', self.update)
+        self.fbind('textSize', self.update)
+
+    def update(self, *largs, **kwargs):
+        pass
+        
+    def enable(self, enabled):
+        if enabled: self.opacity = 1.0
+        else: self.opacity = 0.0
 
 class NavBar(Layout):
     # Tabs
@@ -40,10 +57,14 @@ class NavBar(Layout):
     tabRadius = NumericProperty(5)
     tabBorderThickness = NumericProperty(5)
     tabBorderEnable = BooleanProperty(False)
+    tabBarHeight = NumericProperty(0.1)
+    valign = OptionProperty('center', options=['top', 'center','bottom'])
+    tabFontSize = NumericProperty(None)
 
     # Positioning and size
     orientToTop = BooleanProperty(True)
     extendPastBounds = BooleanProperty(False)
+    removeIncompleteTabs = BooleanProperty(False)
 
     # Color Scheme
     backgroundColor = ListProperty([1,1,1,1])
@@ -68,21 +89,21 @@ class NavBar(Layout):
 
         # Declare paramters
         self.barPos = px,py
-        self.barSize = width * self.size_hint_x, height * self.size_hint_y
+        self.barSize = width * self.size_hint_x, height * self.size_hint_y * self.tabBarHeight
         self.contentPos = px, self.barSize[1]
-        self.contentSize = width * self.size_hint_x, height - self.barSize[1]
+        self.contentSize = width * self.size_hint_x, height * self.size_hint_y - self.barSize[1]
         self.tabSize = [10,10]
         self.activeTab = 0
         self.labels = {}
         self._tabsFound = False
         self._tabSpacingHint = 0.0
-
+        self.loaded = False
+        
         # Create bindings
         fbind = self.fbind
         update = self._trigger_layout
         findTabs = self._findTabs
         fbind('_tabsFound', update)
-        #fbind('tabSpacing', update)
         fbind('orientToTop', update)
         fbind('extendPastBounds', update)
         fbind('backgroundColor', update)
@@ -94,36 +115,45 @@ class NavBar(Layout):
         fbind('size', update)
         fbind('pos', update)
         fbind('size_hint', update)
-        #parent.fbind('size', self._update_size)
-
+        
     def _update_size(self, *largs, **kwargs):
         # Extract kwargs
         parent = self.parent
         px,py = 0.0,0.0
         if parent is None:
             parent = Window
-        # else:
-        #     px,py = parent.pos
+        elif parent is not Window:
+            px,py = parent.pos
 
-        width, height = parent.size
+        # Calculate own width and height
+        pWidth, pHeight = parent.size
+        width = pWidth * self.size_hint_x
+        height = pHeight * self.size_hint_y
 
-        # Declare paramters
-        self.barPos = px,py
-        self.barSize = width * self.size_hint_x, height * self.size_hint_y
-        self.contentPos = px, self.barSize[1]
-        self.contentSize = width * self.size_hint_x, height - self.barSize[1]
-        self.tabSize = [10,10]
-        self.activeTab = 0
-        self.labels = {}
-        self.size = self.barSize[0] + self.contentSize[0], self.barSize[1] + self.contentSize[1]
+        # Calculate dimensions of the nav bar and its content
+        self.barSize = width, height * self.tabBarHeight
+        self.contentSize = width, height - self.barSize[1]
+
+        # Calculate the bar and content position
+        if self.orientToTop:
+            self.barPos = px, py + self.contentSize[1]
+            self.contentPos = px, py
+        else:
+            self.barPos = px, py
+            self.contentPos = px, py + self.barSize[1]
+
+        # Assign self.size
+        self.size = width, height
 
     def _findTabs(self, *largs, **kwargs):
         self.activeTab = 0
+        firstFind = self.tabs == 0
         
         # Search children for NavBarTabs
         for child in self.children:
             if isinstance(child, NavBarTabBase) and not child in self.tabs:
                 # NavBarTab found. Add to tabs.
+                child.enable(False)
                 self.tabs.append(child)
                 if not(child in self.labels):
                     self.labels[child] = Label(
@@ -136,18 +166,63 @@ class NavBar(Layout):
                         bold=child.bold,
                         text_size=child.textSize
                     )
-                    App.get_running_app().root.add_widget(self.labels[child])
-        self.tabs.reverse()
+                    self.add_widget(self.labels[child])
+        if firstFind: 
+            self.tabs.reverse()
+            self.tabs[0].enable(True)
         self._tabsFound = not self._tabsFound
 
+    def real_remove_widget(self, screen):
+        self.remove_widget(screen)
+        self._manager.real_remove_widget(screen)
+
+    def switch_tab(self, tab):
+        oldTab = self.tabs[self.activeTab]
+        oldTab.enable(False)
+        tab.enable(True)
+        if tab in self.tabs:
+            self.activeTab = self.tabs.index(tab)
+        self._trigger_layout()
+
+    def next(self):
+        newIndex = self.activeTab + 1
+        if newIndex > len(self.tabs) - 1:
+            newIndex = 0
+        elif newIndex < 0:
+            newIndex = len(self.tabs) - 1
+        self.switch_tab(self.tabs[newIndex])
+
+    def prev(self):
+        newIndex = self.activeTab - 1
+        if newIndex > len(self.tabs) - 1:
+            newIndex = 0
+        elif newIndex < 0:
+            newIndex = len(self.tabs) - 1
+        self.switch_tab(self.tabs[newIndex])
         
     ################################################ UPDATE METHODS ################################################
 
     def do_layout(self, *largs, **kwargs):
+        self.canvas.before.clear()
+        self._update_size()
         self._calcTabSize()
         self.drawBackground()
+
+        if not self.loaded and len(self.tabs) > 0:
+            self.loaded = True
+            self.switch_tab(self.tabs[0])
+
         for tab in self.tabs:
+            # Draw tabs in bar
             self.drawTab(self.tabs.index(tab))
+            
+            # Update tab content space
+            tab.size = self.contentSize
+            tab.pos = self.contentPos
+
+            # Update tab text size
+            if self.tabFontSize is not None:
+                self.labels[tab].font_size = self.tabFontSize
 
     def _calcTabSize(self):
         # Make sure tab spacing is in range [0,1] or 0.1 if not specified
@@ -156,54 +231,40 @@ class NavBar(Layout):
         else:
             self.tabSpacing = self._limit(self.tabSpacing, 0.0, 1.0)
 
-        print("Tab spacing: {}".format(self.tabSpacing))
-
         tabWidth, tabHeight = self.tabSizeHint
-        print("User supplied tab size: ({}, {})".format(tabWidth, tabHeight))
-
+        
         # Calculate tab sizes based on layout style
         if self.extendPastBounds:
-            print("Extending past bounds!")
             # Tabs should be allowed to exit the bounds of the control
             if tabWidth is None:
                 # Allow space for 4 tabs at a time by default
                 tabWidth = 1.0 / (4 * (1 + self.tabSpacing) + self.tabSpacing)
-                print("  Tab width autoset to: {}".format(tabWidth))
                 
             if tabHeight is None:
                 # Fill entire vertical space
                 tabHeight = 1.0
-                print("  Tab hight autoset to: {}".format(tabHeight))
             
             self.tabSizeHint = self._limit(tabWidth, 0.0, 1.0), self._limit(tabHeight, 0.0, 1.0)
             self._tabSpacingHint = (1.0 - 4 * tabWidth) / (5)
-            print("  Final size and spacing: size=({}, {}), spacing={}".format(tabWidth, tabHeight, self.tabSpacing))
         else:
-            print("Containing tabs to bounds!")
             # Tabs should be contained within the bounds of the control. DO NOT use the user defined tab size recommendations.
             numOfChildren = len(self.tabs)
-            print("  Number of tabs: {}".format(numOfChildren))
-            print(" Spacing: {}".format(self.tabSpacing))
 
             # Calculate tab width hint
             tabWidth = 1.0 / (numOfChildren * (1.0 + self.tabSpacing) + self.tabSpacing)
-            print("  Autosetting tab width: {:.3f}".format(tabWidth))
+            
             if tabHeight is None:
                 # Fill entire vertical space
                 tabHeight = 1.0
-                print("  Autosetting tab height: {}".format(tabHeight))
             else:
                 # Fill vertical space to specified limit
                 tabHeight = self._limit(self.tabSizeHint[1], 0.0, 1.0)
-                print("  Using user defined tab height: {}".format(tabHeight))
             self.tabSizeHint = tabWidth, tabHeight
             self._tabSpacingHint = (1.0 - numOfChildren * tabWidth) / (numOfChildren + 1)
-            print("  Final size and spacing: size=({}, {}), spacing={}".format(tabWidth, tabHeight, self.tabSpacing))
 
     ################################################ DRAW METHODS ################################################
 
     def drawRect(self, pos, size, color):
-        print("Drawing Rectangle\n  pos: {}, size: {}, color: {}".format(pos, size, color))
         canvas = self.canvas.before
         rect = InstructionGroup()
         rect.add(Color(rgba=color))
@@ -211,7 +272,6 @@ class NavBar(Layout):
         canvas.add(rect)
 
     def drawRoundedRect(self, pos, size, color, radius):
-        print("Drawing Rectangle\n  pos: {}, size: {}, color: {}".format(pos, size, color))
         # Split components
         x,y = pos
         width, height = size
@@ -250,7 +310,6 @@ class NavBar(Layout):
         canvas.add(rect)
 
     def drawRectBorder(self, pos, size, thickness, color):
-        print("Drawing Rectangle Border\n  pos: {}, size: {}, color: {}".format(pos, size, color))
         canvas = self.canvas.before
         rect = InstructionGroup()
         rect.add(Color(rgba=color))
@@ -258,7 +317,6 @@ class NavBar(Layout):
         canvas.add(rect)
 
     def drawRoundRectBorder(self, pos, size, thickness, color, radius):
-        print("Drawing Rectangle Border\n  pos: {}, size: {}, color: {}".format(pos, size, color))
         canvas = self.canvas.before
         rect = InstructionGroup()
         rect.add(Color(rgba=color))
@@ -266,7 +324,6 @@ class NavBar(Layout):
         canvas.add(rect)
 
     def drawBackground(self):
-        print("Drawing background...")
         self.drawRect(self.contentPos, self.contentSize, self.backgroundColor)
         self.drawRect(self.barPos, self.barSize, self.tabBackgroundColor)
 
@@ -274,7 +331,6 @@ class NavBar(Layout):
         # NavBar size and location
         x, y = self.barPos
         width, height = self.barSize
-        print("Draw Tab\n  Tab#: {}, x: {}, y: {}, width: {}, height: {}".format(index, x, y, width, height))
 
         # Tab size and location
         tabWidth = width * self.tabSizeHint[0]
@@ -288,7 +344,12 @@ class NavBar(Layout):
         spacing = self._tabSpacingHint * width
         elementWidth = tabWidth + spacing
         verticalSpacing = (height - tabHeight) / 2.0
-        tabY = y + verticalSpacing
+        if self.valign == 'top':
+            tabY = y + 2 * verticalSpacing
+        elif self.valign == 'center':
+            tabY = y + verticalSpacing
+        else:
+            tabY = y
 
         # Calculate tab position if tabs are anchored to either the left or right
         distFromLeft = spacing + self.activeTab * elementWidth
@@ -328,12 +389,11 @@ class NavBar(Layout):
 
         # Display Text
         tab = self.tabs[index]
-        tabLabel = self.labels[tab]
-        tabLabel.text = tab.text
-        tabLabel.pos = tabX,tabY
-        tabLabel.size = tabWidth,tabHeight
-
-        print("Adding Label\n  Text: {}, pos: {}, size: {}, font_size: {}, color: {}".format(tabLabel.text, tabLabel.pos, tabLabel.size, tabLabel.font_size, tabLabel.color))
+        if tab in self.labels:
+            tabLabel = self.labels[tab]
+            tabLabel.text = tab.text
+            tabLabel.pos = tabX,tabY
+            tabLabel.size = tabWidth,tabHeight
 
     ################################################ DATA MANIPULATION METHODS ################################################
 
@@ -343,28 +403,79 @@ class NavBar(Layout):
         elif max is not None and value > max: value = max
         return value
 
-class MainApp(App):
-    def build(self):
-        Window.size = 600,600
-        self.root = root = NavBar(
-            size_hint=(1.0,0.1),
-            tabShape="RoundedRectangle",
-            tabRadius=10,
-            tabBorderThickness=2.5,
-            tabBorderEnable=False,
-            extendPastBounds=True,
-            highlightColor=(0.2,1.0,0.3,1.0),
-            tabColor=(0.5,0.5,0.5,1.0),
-            tabBackgroundColor=(0.2,0.2,0.2,1.0),
-            backgroundColor=(0.2,0.2,0.2,1.0),
-            tabSizeHint=(None, 0.8)
-        )
-        root.add_widget(NavBarTabBase(text="Tab 1", fontSize=20, halign='center', valign='center', bold=True))
-        root.add_widget(NavBarTabBase(text="Tab 2", fontSize=20, halign='center', valign='center', bold=True))
-        root.add_widget(NavBarTabBase(text="Tab 3", fontSize=20, halign='center', valign='center', bold=True))
-        root.add_widget(NavBarTabBase(text="Tab 4", fontSize=20, halign='center', valign='center', bold=True))
-        root.add_widget(NavBarTabBase(text="Tab 5", fontSize=20, halign='center', valign='center', bold=True))
-        return root
-
 if __name__ == '__main__':
+
+    class KeyboardListener(Widget):
+        def __init__(self, **kwargs):
+            super(KeyboardListener, self).__init__(**kwargs)
+            self._keyboard = Window.request_keyboard(
+                self._keyboard_closed, self, 'text')
+            if self._keyboard.widget:
+                # If it exists, this widget is a VKeyboard object which can be used
+                # to change the keyboard layout.
+                pass
+            self._keyboard.bind(on_key_down=self._on_keyboard_down)
+
+        def _keyboard_closed(self):
+            self._keyboard.unbind(on_key_down=self._on_keyboard_down)
+            self._keyboard = None
+
+        def _on_keyboard_down(self, keyboard, keycode, text, modifiers):
+            # Keycode is composed of an integer + a string
+            # If escape is hit, release the keyboard
+            if keycode[1] == 'escape':
+                keyboard.release()
+            
+            # Return True to accept the key. Otherwise, it will be used by the system.
+            return True
+
+    class MainApp(App, KeyboardListener):
+        def __init__(self, **kwargs):
+            super(MainApp, self).__init__(**kwargs)
+
+        def build(self):
+            Window.size = 600,600
+            self.root = root = NavBar(
+                size_hint=(1.0,1.0),
+                tabBarHeight=0.1,
+                tabShape="RoundedRectangle",
+                tabRadius=10,
+                tabBorderThickness=2.5,
+                tabBorderEnable=False,
+                extendPastBounds=True,
+                highlightColor=(0.2,1.0,0.3,1.0),
+                tabColor=(0.5,0.5,0.5,1.0),
+                tabBackgroundColor=(0.2,0.2,0.2,1.0),
+                backgroundColor=(0.2,0.2,0.2,1.0),
+                tabSizeHint=(None, 0.8),
+                orientToTop=False,
+                valign="center"
+            )
+            tab1 = NavBarTabBase(text="Tab 1", fontSize=20, halign='center', valign='center', bold=True, size=root.tabSize, pos=root.contentPos)
+            float1 = FloatLayout(size=tab1.size, pos=tab1.pos)
+            float1.add_widget(Label(text="Hello, World!", pos_hint={'center_x': 0.5, 'center_y': 0.5}))
+            tab1.add_widget(float1)        
+            tab2 = NavBarTabBase(text="Tab 2", fontSize=20, halign='center', valign='center', bold=True, size=root.tabSize, pos=root.contentPos)
+            float2 = FloatLayout(size=tab2.size, pos=tab2.pos)
+            float2.add_widget(Label(text="Goodbye!", pos_hint={'center_x': 0.5, 'center_y': 0.5}))
+            tab2.add_widget(float2)
+            root.add_widget(tab1)
+            root.add_widget(tab2)
+            root.add_widget(NavBarTabBase(text="Tab 3", fontSize=20, halign='center', valign='center', bold=True))
+            root.add_widget(NavBarTabBase(text="Tab 4", fontSize=20, halign='center', valign='center', bold=True))
+            root.add_widget(NavBarTabBase(text="Tab 5", fontSize=20, halign='center', valign='center', bold=True))
+
+            return root
+
+        def _on_keyboard_down(self, keyboard, keycode, text, modifiers):
+            super()._on_keyboard_down(keyboard, keycode, text, modifiers)
+            button = keycode[1]
+            if button == 'right':
+                self.root.next()
+            elif button == 'left':
+                self.root.prev()
+            else:
+                return False
+            return True
+            
     MainApp().run()
