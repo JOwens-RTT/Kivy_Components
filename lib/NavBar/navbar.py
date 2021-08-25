@@ -184,6 +184,9 @@ class NavBar(Layout):
             self.activeTab = self.tabs.index(tab)
         self._trigger_layout()
 
+    def getCurrent(self):
+        return self.tabs[self.activeTab]
+
     def next(self):
         newIndex = self.activeTab + 1
         if newIndex > len(self.tabs) - 1:
