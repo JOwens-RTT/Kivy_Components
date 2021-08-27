@@ -60,6 +60,7 @@ class NavBar(Layout):
     tabBarHeight = NumericProperty(0.1)
     valign = OptionProperty('center', options=['top', 'center','bottom'])
     tabFontSize = NumericProperty(None)
+    tabWidthReduction = NumericProperty(0.5)
 
     # Positioning and size
     orientToTop = BooleanProperty(True)
@@ -462,9 +463,9 @@ class NavBar(Layout):
     def _drawHalfTab(self, pos, size, color, chevronWidth, isLeft, index):
         tabX, tabY = pos
         tabWidth, tabHeight = size
-        tabWidth *= 0.5
+        tabWidth *= self.tabWidthReduction
         if isLeft:
-            tabX += tabWidth
+            tabX += size[0] - tabWidth
 
         if self.tabShape == "Rectangle":
             if self.tabBorderEnable:
