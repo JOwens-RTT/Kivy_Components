@@ -65,6 +65,8 @@ class NavBar(Layout):
     orientToTop = BooleanProperty(True)
     extendPastBounds = BooleanProperty(False)
     removeIncompleteTabs = BooleanProperty(False)
+    chevronMargin = ListProperty([20,10])
+    chevronWidth = NumericProperty(5)
 
     # Color Scheme
     backgroundColor = ListProperty([1,1,1,1])
@@ -211,6 +213,8 @@ class NavBar(Layout):
         self._calcTabSize()
         self.drawBackground()
 
+        #self.drawChevron([200,200], [200,200], [10,10], 20, True, [1,0,0,1])
+
         if not self.loaded and len(self.tabs) > 0:
             self.loaded = True
             self.switch_tab(self.tabs[0])
@@ -266,6 +270,40 @@ class NavBar(Layout):
             self._tabSpacingHint = (1.0 - numOfChildren * tabWidth) / (numOfChildren + 1)
 
     ################################################ DRAW METHODS ################################################
+
+    def drawChevron(self, pos, size, margin, thickness, isleft, color):
+        x,y = pos
+        width,height = size
+        mw,mh = margin
+
+        xVerts = [x+mw, x+width-mw-thickness, x+width-mw, x+mw+thickness, x+width-mw, x+width-mw-thickness, x+mw]
+        yVerts = [y+height/2, y+height-mh, y+height-mh, y+height/2, y+mh, y+mh, y+height/2]
+
+        boundX = x + width/2
+        boundY = y + height/2
+
+        if isleft is False:
+            for i in range(len(xVerts)):
+                xVerts[i] = self.invertX(boundX, xVerts[i])
+
+        verts = xVerts + yVerts
+        verts[::2] = xVerts
+        verts[1::2] = yVerts
+
+        canvas = self.canvas.before
+        chevron = InstructionGroup()
+        chevron.add(Color(rgba=color))
+        chevron.add(Line(points=verts, width=thickness))
+        canvas.add(chevron)
+
+    def invertX(self, centerX, x):
+        return centerX - (x - centerX)
+
+
+    def invertY(self, boundBoxCenter, point):
+        x,y = point
+        bbx, bby = boundBoxCenter
+        y = bby - (y - bby)
 
     def drawRect(self, pos, size, color):
         canvas = self.canvas.before
@@ -372,6 +410,29 @@ class NavBar(Layout):
             displacement = index - self.activeTab
             tabX = activeX + displacement * elementWidth
 
+        # Determine if the tab is in or out of bounds
+        if tabX < x and tabX + tabWidth > x:
+            # tab half in left bounds
+            self._drawHalfTab([tabX, tabY], [tabWidth, tabHeight], color, 2, True, index)
+        elif tabX + tabWidth > x + width and tabX < x + width:
+            # out half in right bounds
+            self._drawHalfTab([tabX, tabY], [tabWidth, tabHeight], color, 2, False, index)
+        elif tabX >= x and tabX + tabWidth <= x + width:
+            # tab fully in bounds
+            self._drawFullTab([tabX,tabY], [tabWidth, tabHeight], text, color, index)
+        else:
+            # Tab fully out of bounds
+            tab = self.tabs[index]
+            if tab in self.labels:
+                tabLabel = self.labels[tab]
+                tabLabel.text = ""
+                tabLabel.pos = tabX,tabY
+                tabLabel.size = tabWidth,tabHeight
+
+    def _drawFullTab(self, pos, size, text, color, index):
+        tabX, tabY = pos
+        tabWidth, tabHeight = size
+
         if self.tabShape == "Rectangle":
             if self.tabBorderEnable:
                 thickness = self.tabBorderThickness
@@ -397,6 +458,42 @@ class NavBar(Layout):
             tabLabel.text = tab.text
             tabLabel.pos = tabX,tabY
             tabLabel.size = tabWidth,tabHeight
+
+    def _drawHalfTab(self, pos, size, color, chevronWidth, isLeft, index):
+        tabX, tabY = pos
+        tabWidth, tabHeight = size
+        tabWidth *= 0.5
+        if isLeft:
+            tabX += tabWidth
+
+        if self.tabShape == "Rectangle":
+            if self.tabBorderEnable:
+                thickness = self.tabBorderThickness
+                self.drawRect((tabX + thickness, tabY + thickness), (tabWidth - 2 * thickness,tabHeight - 2 * thickness), color)
+                self.drawRectBorder((tabX,tabY), (tabWidth,tabHeight), thickness, self.tabBorderColor)
+            else:
+                self.drawRect((tabX,tabY), (tabWidth,tabHeight), color)
+        elif self.tabShape == "RoundedRectangle":
+            
+            if self.tabBorderEnable:
+                thickness = self.tabBorderThickness
+                self.drawRoundedRect((tabX + thickness, tabY + thickness), (tabWidth - 2 * thickness,tabHeight - 2 * thickness), color, self.tabRadius)
+                self.drawRoundRectBorder((tabX,tabY), (tabWidth,tabHeight), self.tabBorderThickness, self.tabBorderColor, self.tabRadius)
+            else:
+                self.drawRoundedRect((tabX,tabY), (tabWidth,tabHeight), color, self.tabRadius)
+        else:
+            raise Exception("Requested Tab background shape not implemented!!! tabShape = {} is not a valid keyword.".format(self.tabShape))
+
+        # Display Text
+        tab = self.tabs[index]
+        if tab in self.labels:
+            tabLabel = self.labels[tab]
+            tabLabel.text = ""
+            tabLabel.pos = tabX,tabY
+            tabLabel.size = tabWidth,tabHeight
+
+        # Display Chevron
+        self.drawChevron([tabX, tabY], [tabWidth,tabHeight], self.chevronMargin, self.chevronWidth, isLeft, tab.textColor)
 
     ################################################ DATA MANIPULATION METHODS ################################################
 
@@ -481,4 +578,4 @@ if __name__ == '__main__':
                 return False
             return True
             
-    MainApp().run()
+    app = MainApp().run()
